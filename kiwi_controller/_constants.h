@@ -102,16 +102,22 @@ class PIDController {
       this->output = this->kp * this->error + this->ki * this->sum_error + this->kd * this->d_error;
 
       // hack, pls fix
-      if (abs(this->error) < 10) {
-        return 0.0;  
-      }
+      // if (abs(this->error) < 10) {
+      //   return 0.0;  
+      // }
 
       return this->output;
     }
 };
 
+// this robot uses Polulu 50:1 200RPM 12V DC Gearmotors with 64 CPR Encoders: https://www.pololu.com/product/4753
 class DriveMotor {
   public:
+    const int MIN_DRIVE_PWM = 45;
+    const int MAX_DRIVE_PWM = 255;
+    // const float MAX_ANGULAR_VELOCITY = 20.943951;
+    const float MAX_ANGULAR_VELOCITY = 1.4;
+
     int ENCA;
     int ENCB;
     volatile long enc_posi;
@@ -172,14 +178,14 @@ class DriveMotor {
       int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_enc_pos, this->enc_pos, dt);
       motor_pwm = constrain(motor_pwm, -255, 255);
 
-//      Serial.print("T");
-//      Serial.print(this->id);
-//      Serial.print(" ");
-//      Serial.print(this->target_enc_pos);
-//      Serial.print(" E ");
-//      Serial.print(this->enc_pos);
-//      Serial.print(" M ");
-//      Serial.print(motor_pwm);
+    //  Serial.print("T");
+    //  Serial.print(this->id);
+    //  Serial.print(" ");
+    //  Serial.print(this->target_enc_pos);
+    //  Serial.print(" E ");
+    //  Serial.print(this->enc_pos);
+    //  Serial.print(" M ");
+    //  Serial.print(motor_pwm);
 //      Serial.println();
 
       write_pwm(motor_pwm);
@@ -187,6 +193,10 @@ class DriveMotor {
 
     void write_pwm(int motor_pwm) {
       int mapped_pwm = this->bal * motor_pwm;
+      if (abs(mapped_pwm) < MIN_DRIVE_PWM) mapped_pwm = 0;
+
+      Serial.print(mapped_pwm);
+      Serial.print(", ");
     
       // control motor direction
       if (mapped_pwm > 0) {

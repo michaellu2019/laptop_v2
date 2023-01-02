@@ -96,7 +96,6 @@ class PIDController {
       
       this->error = this->setpoint - this->value;
       this->sum_error = this->sum_error + this->error * this->dt;
-      this->sum_error = 0;
       this->d_error = (this->error - this->prev_error)/this->dt;
       this->prev_error = this->error;
 
@@ -111,6 +110,10 @@ class PIDController {
       // Serial.print(this->error);
 
       return this->output;
+    }
+
+    void reset_sum_error() {
+      this->sum_error = 0.0;
     }
 };
 
@@ -131,6 +134,9 @@ class DriveMotor {
     float enc_velocity;
     volatile long prev_enc_time_micros;
 
+    const float cutoff_target_v = 0.5;
+    float target_vf;
+    float prev_target_v;
     float v1f;
     float prev_v1;
     float v2f;
@@ -149,7 +155,6 @@ class DriveMotor {
 
     float pulses_per_rotation;
     float wheel_circumference;
-    float target_angular_velocity; // min 0.125, max 3.3 rot/s
 
   public:
     DriveMotor(int id, int EN, int IN1, int IN2, int ENCA, int ENCB, 
@@ -174,9 +179,10 @@ class DriveMotor {
       pinMode(this->ENCB, INPUT);
     }
     
-    void set_drive_speed(float angular_velocity, float dt) {
-      this->target_angular_velocity = angular_velocity;
-      float v_target = angular_velocity;
+    void set_drive_speed(float target_v, float dt) {
+      this->target_vf = (abs(target_v) < cutoff_target_v) ? 0 : this->af * this->target_vf + this->bf * target_v + this->bf * this->prev_target_v;
+      this->prev_target_v = target_v;
+
       // float v_target = (this->target_angular_velocity * 60.0)/(2 * M_PI);
       // float v_target = (this->target_angular_velocity * this->pulses_per_rotation)/(2 * M_PI);
       // float d_target = (this->target_angular_velocity * dt * this->pulses_per_rotation)/(2 * M_PI);
@@ -197,7 +203,12 @@ class DriveMotor {
       this->v2f = this->af * this->v2f + this->bf * v2 + this->bf * this->prev_v2;
       this->prev_v2 = v2;
 
-      float v = (this->v1f < EPSILON) ? this->v1f : this->v2f;
+      float v = (abs(this->v1f) < EPSILON) ? this->v1f : this->v2f;
+      if (abs(this->target_vf) < EPSILON) {
+        v = 0.0;
+        this->pid_controller->reset_sum_error();
+      }
+
       // float v = (this->enc_pos - this->prev_enc_pos)/(dt * this->pulses_per_rotation) * 2 * M_PI;
       this->prev_enc_pos = this->enc_pos;
 
@@ -205,7 +216,7 @@ class DriveMotor {
       // this->target_enc_pos = -1600 * 2;
 
       Serial.print("v_target:");
-      Serial.print(v_target), 5;
+      Serial.print(this->target_vf), 5;
       // Serial.print(" v1:");
       // Serial.print(v1, 5);
       // Serial.print(" v1f:");
@@ -222,7 +233,7 @@ class DriveMotor {
       // Serial.print(dt, 5);
       
       // int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_enc_pos, this->enc_pos, dt);
-      int motor_pwm = (int) this->pid_controller->get_controller_output(v_target, v, dt);
+      int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_vf, v, dt);
       // int motor_pwm = 35;
       // int motor_pwm = 100*(sin(1.0 * M_PI * micros()/1e6)) + 100;
       motor_pwm = constrain(motor_pwm, -255, 255);
@@ -238,6 +249,10 @@ class DriveMotor {
 
       Serial.print(" 0:");
       Serial.print(0);
+      Serial.print(" 23:");
+      Serial.print(23);
+      Serial.print(" -23:");
+      Serial.print(-23);
 //      Serial.println();
 
       write_pwm(motor_pwm);
@@ -267,9 +282,9 @@ class DriveMotor {
     }
 };
 
-PIDController left_drive_motor_pid_controller = PIDController(100.0, 50.0, 5.0);
-PIDController right_drive_motor_pid_controller = PIDController(2.5, 0.1, 0.28);
-PIDController back_drive_motor_pid_controller = PIDController(2.5, 0.1, 0.28);
+PIDController left_drive_motor_pid_controller = PIDController(100.0, 15.0, 5.0);
+PIDController right_drive_motor_pid_controller = PIDController(100.0, 15.0, 5.0);
+PIDController back_drive_motor_pid_controller = PIDController(100.0, 15.0, 5.0);
 
 DriveMotor left_drive_motor = DriveMotor(LEFT_DRIVE_MOTOR, 10, 31, 30, 18, 19, 1.0, &left_drive_motor_pid_controller);
 DriveMotor right_drive_motor = DriveMotor(RIGHT_DRIVE_MOTOR, 11, 33, 32, 20, 21, 1.0, &right_drive_motor_pid_controller);

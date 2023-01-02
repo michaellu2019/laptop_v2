@@ -5,6 +5,7 @@
 
 #define M_PI 3.14159265
 #define DEG_TO_RAD M_PI/180.0
+#define EPSILON 0.00001
 
 // radio
 RF24 radio(7, 8); // CE, CSN
@@ -19,7 +20,7 @@ int data[5];
 #define RIGHT_DRIVE_MOTOR 1
 #define BACK_DRIVE_MOTOR 2
 
-long current_time_micros = 0;
+long curr_time_micros = 0;
 long prev_time_micros = 0;
 
 // rough theory explanation: https://youtu.be/wwQQnSWqB7A
@@ -71,13 +72,13 @@ class PIDController {
     float ki;
     float kd;
     
-    long error;
-    float old_error;
+    float error;
+    float prev_error;
     float d_error;
     float sum_error;
     
-    long setpoint;
-    long value;
+    float setpoint;
+    float value;
     float dt;
     float output;
 
@@ -88,7 +89,7 @@ class PIDController {
       this->kd = kd;
     }
 
-    float get_controller_output(long setpoint, long value, float dt) {
+    float get_controller_output(float setpoint, float value, float dt) {
       this->setpoint = setpoint;
       this->value = value;
       this->dt = dt;
@@ -96,8 +97,8 @@ class PIDController {
       this->error = this->setpoint - this->value;
       this->sum_error = this->sum_error + this->error * this->dt;
       this->sum_error = 0;
-      this->d_error = (this->error - this->old_error)/this->dt;
-      this->old_error = this->error;
+      this->d_error = (this->error - this->prev_error)/this->dt;
+      this->prev_error = this->error;
 
       this->output = this->kp * this->error + this->ki * this->sum_error + this->kd * this->d_error;
 
@@ -106,6 +107,9 @@ class PIDController {
       //   return 0.0;  
       // }
 
+      // Serial.print(" e:");
+      // Serial.print(this->error);
+
       return this->output;
     }
 };
@@ -113,16 +117,26 @@ class PIDController {
 // this robot uses Polulu 50:1 200RPM 12V DC Gearmotors with 64 CPR Encoders: https://www.pololu.com/product/4753
 class DriveMotor {
   public:
-    const int MIN_DRIVE_PWM = 45;
+    const int MIN_DRIVE_PWM = 30;
     const int MAX_DRIVE_PWM = 255;
-    // const float MAX_ANGULAR_VELOCITY = 20.943951;
-    const float MAX_ANGULAR_VELOCITY = 1.4;
+    const float MAX_ANGULAR_VELOCITY = 20.943951;
 
     int ENCA;
     int ENCB;
     volatile long enc_posi;
     long enc_pos;
+    long prev_enc_pos;
     long target_enc_pos;
+    volatile float enc_velocityi;
+    float enc_velocity;
+    volatile long prev_enc_time_micros;
+
+    float v1f;
+    float prev_v1;
+    float v2f;
+    float prev_v2;
+    const float af = 0.893;
+    const float bf = (1.0 - af)/2.0; 
     
   private:
     int id;
@@ -152,11 +166,6 @@ class DriveMotor {
 
       this->pulses_per_rotation = 64/4 * 50;
       this->wheel_circumference = 0.072 * PI;
-
-      
-      this->enc_posi = 0;
-      this->enc_pos = 0;
-      this->target_enc_pos = 0;
       
       pinMode(this->EN, OUTPUT);
       pinMode(this->IN1, OUTPUT);
@@ -167,25 +176,68 @@ class DriveMotor {
     
     void set_drive_speed(float angular_velocity, float dt) {
       this->target_angular_velocity = angular_velocity;
-      float d_target = this->target_angular_velocity * dt * this->pulses_per_rotation;
+      float v_target = angular_velocity;
+      // float v_target = (this->target_angular_velocity * 60.0)/(2 * M_PI);
+      // float v_target = (this->target_angular_velocity * this->pulses_per_rotation)/(2 * M_PI);
+      // float d_target = (this->target_angular_velocity * dt * this->pulses_per_rotation)/(2 * M_PI);
+
+      // v_target = 100*(sin(micros()/1e6)) + 100;
+      // v_target = 0;
 
       ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
         this->enc_pos = this->enc_posi;
+        this->enc_velocity = this->enc_velocityi;
       }
-      this->target_enc_pos = (long) ceil(this->target_enc_pos + d_target);
-//      this->target_enc_pos = -1600 * 2;
+
+      float v1 = (this->enc_pos - this->prev_enc_pos)/(dt * this->pulses_per_rotation) * 2 * M_PI;
+      float v2 = this->enc_velocity/this->pulses_per_rotation * 2 * M_PI;
       
-      int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_enc_pos, this->enc_pos, dt);
+      this->v1f = this->af * this->v1f + this->bf * v1 + this->bf * this->prev_v1;
+      this->prev_v1 = v1;
+      this->v2f = this->af * this->v2f + this->bf * v2 + this->bf * this->prev_v2;
+      this->prev_v2 = v2;
+
+      float v = (this->v1f < EPSILON) ? this->v1f : this->v2f;
+      // float v = (this->enc_pos - this->prev_enc_pos)/(dt * this->pulses_per_rotation) * 2 * M_PI;
+      this->prev_enc_pos = this->enc_pos;
+
+      // this->target_enc_pos = (long) ceil(this->target_enc_pos + d_target);
+      // this->target_enc_pos = -1600 * 2;
+
+      Serial.print("v_target:");
+      Serial.print(v_target), 5;
+      // Serial.print(" v1:");
+      // Serial.print(v1, 5);
+      // Serial.print(" v1f:");
+      // Serial.print(this->v1f, 5);
+      // Serial.print(" v2:");
+      // Serial.print(v2, 5);
+      // Serial.print(" v2f:");
+      // Serial.print(this->v2f, 5);
+      Serial.print(" v:");
+      Serial.print(v, 5);
+      // Serial.print(" pos:");
+      // Serial.print(this->enc_pos);
+      // Serial.print(" dt:");
+      // Serial.print(dt, 5);
+      
+      // int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_enc_pos, this->enc_pos, dt);
+      int motor_pwm = (int) this->pid_controller->get_controller_output(v_target, v, dt);
+      // int motor_pwm = 35;
+      // int motor_pwm = 100*(sin(1.0 * M_PI * micros()/1e6)) + 100;
       motor_pwm = constrain(motor_pwm, -255, 255);
 
-    //  Serial.print("T");
+    //  Serial.print("T ");
     //  Serial.print(this->id);
     //  Serial.print(" ");
     //  Serial.print(this->target_enc_pos);
     //  Serial.print(" E ");
     //  Serial.print(this->enc_pos);
-    //  Serial.print(" M ");
-    //  Serial.print(motor_pwm);
+     Serial.print(" M ");
+     Serial.print(motor_pwm);
+
+      Serial.print(" 0:");
+      Serial.print(0);
 //      Serial.println();
 
       write_pwm(motor_pwm);
@@ -193,10 +245,10 @@ class DriveMotor {
 
     void write_pwm(int motor_pwm) {
       int mapped_pwm = this->bal * motor_pwm;
-      if (abs(mapped_pwm) < MIN_DRIVE_PWM) mapped_pwm = 0;
+      // if (abs(mapped_pwm) < MIN_DRIVE_PWM) mapped_pwm = 0;
 
-      Serial.print(mapped_pwm);
-      Serial.print(", ");
+      // Serial.print(mapped_pwm);
+      // Serial.print(", ");
     
       // control motor direction
       if (mapped_pwm > 0) {
@@ -215,7 +267,7 @@ class DriveMotor {
     }
 };
 
-PIDController left_drive_motor_pid_controller = PIDController(2.5, 0.1, 0.28);
+PIDController left_drive_motor_pid_controller = PIDController(100.0, 50.0, 5.0);
 PIDController right_drive_motor_pid_controller = PIDController(2.5, 0.1, 0.28);
 PIDController back_drive_motor_pid_controller = PIDController(2.5, 0.1, 0.28);
 

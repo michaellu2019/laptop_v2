@@ -44,20 +44,9 @@ void loop() {
     }
   }
 
-  // char output_buffer[40];
-  // sprintf(output_buffer, "%d, %d --> ", input_x, input_y);
-  // Serial.print(output_buffer);
-
   curr_time_micros = micros();
   float dt = ((float) (curr_time_micros - prev_time_micros))/(1.0e6);
-  // long dt_micros = curr_time_micros - prev_time_micros;
   prev_time_micros = curr_time_micros;
-  // Serial.print("dt:");
-  // Serial.print(dt, 6);
-  // Serial.print(" ");
-//  left_drive_motor.set_drive_speed(0.2, dt);
-//  right_drive_motor.set_drive_speed(0.2, dt);
-//  back_drive_motor.set_drive_speed(0.2, dt);
 
   test_duration += dt;
 
@@ -65,17 +54,4 @@ void loop() {
   drive_y = input_y/255.0;
 
   drive_robot(drive_x, drive_y, 0, dt);
-
-  // if (test_duration < 4.0) {
-  //   drive_robot(0, 1, 0, dt);
-  // } else if (test_duration < 8.0) {
-  //   drive_robot(0, -1, 0, dt);
-  // } else if (test_duration < 12.0) {
-  //   drive_robot(1, 0, 0, dt);
-  // } else if (test_duration < 16.0) {
-  //   drive_robot(-1, 0, 0, dt);
-  // } else {
-  //   drive_robot(0, 0, 0, dt);
-  // }
-  // delay(1);
 }

@@ -7,6 +7,8 @@
 #define DEG_TO_RAD M_PI/180.0
 #define EPSILON 0.00001
 
+#define DEBUG 0
+
 // radio
 RF24 radio(7, 8); // CE, CSN
 const byte address[6] = "00001";
@@ -20,6 +22,7 @@ int data[5];
 #define RIGHT_DRIVE_MOTOR 1
 #define BACK_DRIVE_MOTOR 2
 
+// global timer
 long curr_time_micros = 0;
 long prev_time_micros = 0;
 
@@ -66,6 +69,7 @@ float ik_drive_matrix[NUM_DRIVE_MOTORS][NUM_DRIVE_MOTORS] = {{ -1.0/3.0, -sqrt(3
                                                              { -1.0/3.0, sqrt(3.0)/3.0, 1.0/3.0 }, 
                                                              { 2.0/3.0, 0, 1.0/3.0 }};
 
+// PID controller class
 class PIDController {
   private:
     float kp;
@@ -83,41 +87,67 @@ class PIDController {
     float output;
 
   public:
+    /**
+     * constructor for the PIDController class
+     *
+     * @class PIDController
+     * @constructor 
+     *
+     * @param {float} kp the proportional gain constant for the PID controller
+     * @param {float} ki the integral gain constant for the PID controller
+     * @param {float} kd the derivative gain constant for the PID controller
+     */
     PIDController(float kp, float ki, float kd) {
       this->kp = kp;
       this->ki = ki;
       this->kd = kd;
     }
 
+    /**
+     * calculates the output of the PID controller
+     * 
+     * @method get_controller_output
+     * 
+     * @param {float} setpoint the target value for the controller
+     * @param {float} value the current measured value for the controller
+     * @param {float} dt the change in time since the last controller update
+     * 
+     * @return {float} the controller output value
+     */
     float get_controller_output(float setpoint, float value, float dt) {
       this->setpoint = setpoint;
       this->value = value;
       this->dt = dt;
       
+      // calculate all error values
       this->error = this->setpoint - this->value;
       this->sum_error = this->sum_error + this->error * this->dt;
       this->d_error = (this->error - this->prev_error)/this->dt;
       this->prev_error = this->error;
 
+      if (DEBUG) {
+        Serial.print(" e:");
+        Serial.print(this->error);
+      }
+
+      // calculate and return output
       this->output = this->kp * this->error + this->ki * this->sum_error + this->kd * this->d_error;
-
-      // hack, pls fix
-      // if (abs(this->error) < 10) {
-      //   return 0.0;  
-      // }
-
-      // Serial.print(" e:");
-      // Serial.print(this->error);
 
       return this->output;
     }
 
+    /**
+     * resets the integrated error of the controller, preventing integrator windup https://en.wikipedia.org/wiki/Integral_windup
+     * 
+     * @method reset_sum_error
+     */
     void reset_sum_error() {
       this->sum_error = 0.0;
     }
 };
 
-// this robot uses Polulu 50:1 200RPM 12V DC Gearmotors with 64 CPR Encoders: https://www.pololu.com/product/4753
+// drive motor controller class
+// the drive motors are Polulu 50:1 200RPM 12V DC Gearmotors with 64 CPR Encoders: https://www.pololu.com/product/4753
 class DriveMotor {
   public:
     const int MIN_DRIVE_PWM = 30;
@@ -153,12 +183,26 @@ class DriveMotor {
     float bal;
     PIDController* pid_controller;
 
-    float pulses_per_rotation;
-    float wheel_circumference;
+    float pulses_per_rotation = 64/4 * 50;
+    float wheel_circumference = 0.072 * PI;
 
   public:
-    DriveMotor(int id, int EN, int IN1, int IN2, int ENCA, int ENCB, 
-                /*float kp, float ki, float kd,*/float bal, PIDController* pid_controller) {
+    /**
+     * constructor for the DriveMotor class
+     *
+     * @class DriveMotor
+     * @constructor 
+     *
+     * @param {int} id integer ID number for the drive motor
+     * @param {int} EN pin for analogWrite to control PWM duty cycle to motor
+     * @param {int} IN1 pin to control the direction the motor spins
+     * @param {int} IN2 pin to control the direction the motor spins
+     * @param {int} ENCA pin to read the encoder A signal of the motor
+     * @param {int} ENCB pin to read the encoder B signal of the motor
+     * @param {float} bal coefficient to adjust motor power
+     * @param {PIDController*} pid_controller controller to adjust the drive motor velocity
+     */
+    DriveMotor(int id, int EN, int IN1, int IN2, int ENCA, int ENCB, float bal, PIDController* pid_controller) {
       this->id = id;
       this->EN = EN;
       this->IN1 = IN1;
@@ -166,11 +210,8 @@ class DriveMotor {
       this->ENCA = ENCA;
       this->ENCB = ENCB;
 
-      this->pid_controller = pid_controller;
       this->bal = bal;
-
-      this->pulses_per_rotation = 64/4 * 50;
-      this->wheel_circumference = 0.072 * PI;
+      this->pid_controller = pid_controller;
       
       pinMode(this->EN, OUTPUT);
       pinMode(this->IN1, OUTPUT);
@@ -179,91 +220,74 @@ class DriveMotor {
       pinMode(this->ENCB, INPUT);
     }
     
+    /**
+     * uses the drive motor's PID controller to adjust the motor's speed to the desired value
+     * 
+     * @method set_drive_speed
+     * 
+     * @param {float} target_v the desired angular velocity for the drive motor, in rad/s
+     * @param {float} dt the change in time since the last controller update
+     * 
+     * @return {float} the controller output value
+     */
     void set_drive_speed(float target_v, float dt) {
+      // run a low-pass filter on the target velocity
+      // TODO: run low pass filter on code that invokes this function, target velocity should not be filtered by drive motor
       this->target_vf = (abs(target_v) < cutoff_target_v) ? 0 : this->af * this->target_vf + this->bf * target_v + this->bf * this->prev_target_v;
       this->prev_target_v = target_v;
 
-      // float v_target = (this->target_angular_velocity * 60.0)/(2 * M_PI);
-      // float v_target = (this->target_angular_velocity * this->pulses_per_rotation)/(2 * M_PI);
-      // float d_target = (this->target_angular_velocity * dt * this->pulses_per_rotation)/(2 * M_PI);
-
-      // v_target = 100*(sin(micros()/1e6)) + 100;
-      // v_target = 0;
-
+      // read encoder positions and velocities
       ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
         this->enc_pos = this->enc_posi;
         this->enc_velocity = this->enc_velocityi;
       }
 
+      // calculate measured wheel velocities in rad/s
+      // v1 involves counting the number of encoder ticks and dividing by time
+      // v2 involves dividing the time it takes for one encoder tick to occur
       float v1 = (this->enc_pos - this->prev_enc_pos)/(dt * this->pulses_per_rotation) * 2 * M_PI;
       float v2 = this->enc_velocity/this->pulses_per_rotation * 2 * M_PI;
+      this->prev_enc_pos = this->enc_pos;
       
+      // run a low pass filter on both v1 and v2 values to smooth out signal
       this->v1f = this->af * this->v1f + this->bf * v1 + this->bf * this->prev_v1;
       this->prev_v1 = v1;
       this->v2f = this->af * this->v2f + this->bf * v2 + this->bf * this->prev_v2;
       this->prev_v2 = v2;
 
+      // only v1 will accurately measure a zero velocity, v2 can never be zero
+      // set v to v2 unless v1 measures a zero velocity
       float v = (abs(this->v1f) < EPSILON) ? this->v1f : this->v2f;
+      // if the target velocity is zero, force the error to 0 and reset the PID controller's integrated error to prevent integrator windup
       if (abs(this->target_vf) < EPSILON) {
         v = 0.0;
         this->pid_controller->reset_sum_error();
       }
-
-      // float v = (this->enc_pos - this->prev_enc_pos)/(dt * this->pulses_per_rotation) * 2 * M_PI;
-      this->prev_enc_pos = this->enc_pos;
-
-      // this->target_enc_pos = (long) ceil(this->target_enc_pos + d_target);
-      // this->target_enc_pos = -1600 * 2;
-
-      Serial.print("v_target:");
-      Serial.print(this->target_vf), 5;
-      // Serial.print(" v1:");
-      // Serial.print(v1, 5);
-      // Serial.print(" v1f:");
-      // Serial.print(this->v1f, 5);
-      // Serial.print(" v2:");
-      // Serial.print(v2, 5);
-      // Serial.print(" v2f:");
-      // Serial.print(this->v2f, 5);
-      Serial.print(" v:");
-      Serial.print(v, 5);
-      // Serial.print(" pos:");
-      // Serial.print(this->enc_pos);
-      // Serial.print(" dt:");
-      // Serial.print(dt, 5);
       
-      // int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_enc_pos, this->enc_pos, dt);
+      // get motor PWM from PID controller and constrain it within max pwm values 
       int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_vf, v, dt);
-      // int motor_pwm = 35;
-      // int motor_pwm = 100*(sin(1.0 * M_PI * micros()/1e6)) + 100;
-      motor_pwm = constrain(motor_pwm, -255, 255);
-
-    //  Serial.print("T ");
-    //  Serial.print(this->id);
-    //  Serial.print(" ");
-    //  Serial.print(this->target_enc_pos);
-    //  Serial.print(" E ");
-    //  Serial.print(this->enc_pos);
-     Serial.print(" M ");
-     Serial.print(motor_pwm);
-
-      Serial.print(" 0:");
-      Serial.print(0);
-      Serial.print(" 23:");
-      Serial.print(23);
-      Serial.print(" -23:");
-      Serial.print(-23);
-//      Serial.println();
-
+      motor_pwm = constrain(motor_pwm, -MAX_DRIVE_PWM, MAX_DRIVE_PWM);
       write_pwm(motor_pwm);
-    }
 
+      if (DEBUG) {
+        Serial.print("vt:");
+        Serial.print(this->target_vf), 5;
+        Serial.print(" v:");
+        Serial.print(v, 5);
+        Serial.print(" pwm:");
+        Serial.print(motor_pwm);
+      }
+    }
+    
+    /**
+     * write a PWM value to the drive motor
+     * 
+     * @method write_pwm
+     * 
+     * @param {int} write a pwm duty cycle value between -255 and 255 to the drive motor
+     */
     void write_pwm(int motor_pwm) {
       int mapped_pwm = this->bal * motor_pwm;
-      // if (abs(mapped_pwm) < MIN_DRIVE_PWM) mapped_pwm = 0;
-
-      // Serial.print(mapped_pwm);
-      // Serial.print(", ");
     
       // control motor direction
       if (mapped_pwm > 0) {
@@ -282,10 +306,12 @@ class DriveMotor {
     }
 };
 
+// initialize PID controllers
 PIDController left_drive_motor_pid_controller = PIDController(100.0, 15.0, 5.0);
 PIDController right_drive_motor_pid_controller = PIDController(100.0, 15.0, 5.0);
 PIDController back_drive_motor_pid_controller = PIDController(100.0, 15.0, 5.0);
 
+// initialize drive motors
 DriveMotor left_drive_motor = DriveMotor(LEFT_DRIVE_MOTOR, 10, 31, 30, 18, 19, 1.0, &left_drive_motor_pid_controller);
 DriveMotor right_drive_motor = DriveMotor(RIGHT_DRIVE_MOTOR, 11, 33, 32, 20, 21, 1.0, &right_drive_motor_pid_controller);
 DriveMotor back_drive_motor = DriveMotor(BACK_DRIVE_MOTOR, 5, 23, 22, 2, 3, 1.0, &back_drive_motor_pid_controller);

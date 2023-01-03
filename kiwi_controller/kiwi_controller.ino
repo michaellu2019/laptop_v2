@@ -24,12 +24,6 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(back_drive_motor.ENCA), read_drive_motor_encoder<BACK_DRIVE_MOTOR>, RISING);
 }
 
-float test_duration = 0; 
-int input_x;
-int input_y;
-float drive_x;
-float drive_y;
-
 void loop() {
   // read from Serial3 to get input velocity values
   while (Serial3.available() > 0) {
@@ -50,10 +44,13 @@ void loop() {
   float dt = ((float) (curr_time_micros - prev_time_micros))/(1.0e6);
   prev_time_micros = curr_time_micros;
 
-  test_duration += dt;
-
   drive_x = input_x/255.0;
   drive_y = input_y/255.0;
 
-  drive_robot(drive_x, drive_y, 0, dt);
+  drive_xf = af * drive_xf + bf * drive_x + bf * prev_drive_x;
+  prev_drive_x = drive_x;
+  drive_yf = af * drive_yf + bf * drive_y + bf * prev_drive_y;
+  prev_drive_y = drive_y;
+
+  drive_robot(drive_xf, drive_yf, 0, dt);
 }

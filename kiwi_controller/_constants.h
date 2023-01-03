@@ -14,6 +14,18 @@ RF24 radio(7, 8); // CE, CSN
 const byte address[6] = "00001";
 int data[5];
 
+// radio inputs
+int input_x;
+int input_y;
+float drive_xf;
+float drive_x;
+float prev_drive_x;
+float drive_yf;
+float drive_y;
+float prev_drive_y;
+const float af = 0.893;
+const float bf = (1.0 - af)/2.0; 
+
 // drive motors
 #define NUM_DRIVE_MOTORS 3
 #define MAX_DRIVE_MOTOR_PWM 255
@@ -163,16 +175,6 @@ class DriveMotor {
     volatile float enc_velocityi;
     float enc_velocity;
     volatile long prev_enc_time_micros;
-
-    const float cutoff_target_v = 0.5;
-    float target_vf;
-    float prev_target_v;
-    float v1f;
-    float prev_v1;
-    float v2f;
-    float prev_v2;
-    const float af = 0.893;
-    const float bf = (1.0 - af)/2.0; 
     
   private:
     int id;
@@ -185,6 +187,15 @@ class DriveMotor {
 
     float pulses_per_rotation = 64/4 * 50;
     float wheel_circumference = 0.072 * PI;
+
+    const float cutoff_target_v = 0.5;
+    float target_v;
+    float v1f;
+    float prev_v1;
+    float v2f;
+    float prev_v2;
+    const float af = 0.893;
+    const float bf = (1.0 - af)/2.0; 
 
   public:
     /**
@@ -231,10 +242,7 @@ class DriveMotor {
      * @return {float} the controller output value
      */
     void set_drive_speed(float target_v, float dt) {
-      // run a low-pass filter on the target velocity
-      // TODO: run low pass filter on code that invokes this function, target velocity should not be filtered by drive motor
-      this->target_vf = (abs(target_v) < cutoff_target_v) ? 0 : this->af * this->target_vf + this->bf * target_v + this->bf * this->prev_target_v;
-      this->prev_target_v = target_v;
+      this->target_v = (abs(target_v) < this->cutoff_target_v) ? 0 : target_v;
 
       // read encoder positions and velocities
       ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
@@ -259,19 +267,19 @@ class DriveMotor {
       // set v to v2 unless v1 measures a zero velocity
       float v = (abs(this->v1f) < EPSILON) ? this->v1f : this->v2f;
       // if the target velocity is zero, force the error to 0 and reset the PID controller's integrated error to prevent integrator windup
-      if (abs(this->target_vf) < EPSILON) {
+      if (abs(this->target_v) < EPSILON) {
         v = 0.0;
         this->pid_controller->reset_sum_error();
       }
       
       // get motor PWM from PID controller and constrain it within max pwm values 
-      int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_vf, v, dt);
+      int motor_pwm = (int) this->pid_controller->get_controller_output(this->target_v, v, dt);
       motor_pwm = constrain(motor_pwm, -MAX_DRIVE_PWM, MAX_DRIVE_PWM);
       write_pwm(motor_pwm);
 
       if (DEBUG) {
         Serial.print("vt:");
-        Serial.print(this->target_vf), 5;
+        Serial.print(this->target_v), 5;
         Serial.print(" v:");
         Serial.print(v, 5);
         Serial.print(" pwm:");

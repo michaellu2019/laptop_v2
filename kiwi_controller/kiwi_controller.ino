@@ -31,6 +31,7 @@ float drive_x;
 float drive_y;
 
 void loop() {
+  // read from Serial3 to get input velocity values
   while (Serial3.available() > 0) {
     char c;
     c = Serial3.read();
@@ -44,6 +45,7 @@ void loop() {
     }
   }
 
+  // calculate global time values
   curr_time_micros = micros();
   float dt = ((float) (curr_time_micros - prev_time_micros))/(1.0e6);
   prev_time_micros = curr_time_micros;

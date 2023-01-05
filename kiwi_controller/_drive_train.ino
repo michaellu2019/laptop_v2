@@ -11,6 +11,13 @@ void drive_robot(float vx, float vy, float w, float dt) {
   for (int i = 0; i < NUM_DRIVE_MOTORS; i++) {
     motor_speeds[i] = ik_drive_matrix[i][0] * vx + ik_drive_matrix[i][1] * vy + ik_drive_matrix[i][2] * w;
   }
+  
+  if (DEBUG) {
+    Serial.print(vx);
+    Serial.print(", ");
+    Serial.print(vy);
+    Serial.print(" --> ");
+  }
 
   // set the drive motor speeds to the calculated inverse kinematics speeds scaled up by the max motor velocity
   left_drive_motor.set_drive_speed(motor_speeds[0] * left_drive_motor.MAX_ANGULAR_VELOCITY, dt);
@@ -21,7 +28,7 @@ void drive_robot(float vx, float vy, float w, float dt) {
     Serial.print(" hi:");
     Serial.print(left_drive_motor.MAX_ANGULAR_VELOCITY + 1);
     Serial.print(" lo:");
-    Serial.print(left_drive_motor.MAX_ANGULAR_VELOCITY - 1);
+    Serial.print(-left_drive_motor.MAX_ANGULAR_VELOCITY - 1);
     Serial.println();
   }
 }

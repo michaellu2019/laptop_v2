@@ -278,7 +278,7 @@ class DriveMotor {
       write_pwm(motor_pwm);
 
       if (DEBUG) {
-        Serial.print("vt:");
+        Serial.print(" vt:");
         Serial.print(this->target_v), 5;
         Serial.print(" v:");
         Serial.print(v, 5);

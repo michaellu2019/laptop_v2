@@ -11,6 +11,12 @@ void drive_robot(float vx, float vy, float w, float dt) {
   for (int i = 0; i < NUM_DRIVE_MOTORS; i++) {
     motor_speeds[i] = ik_drive_matrix[i][0] * vx + ik_drive_matrix[i][1] * vy + ik_drive_matrix[i][2] * w;
   }
+
+  motor_speeds[0] = vy;
+  motor_speeds[1] = vy;
+  motor_speeds[2] = vy;
+
+  // right_drive_motor.write_pwm(motor_speeds[0] * 255);
   
   if (DEBUG) {
     Serial.print(vx);
@@ -21,8 +27,8 @@ void drive_robot(float vx, float vy, float w, float dt) {
 
   // set the drive motor speeds to the calculated inverse kinematics speeds scaled up by the max motor velocity
   left_drive_motor.set_drive_speed(motor_speeds[0] * left_drive_motor.MAX_ANGULAR_VELOCITY, dt);
-  right_drive_motor.set_drive_speed(motor_speeds[1] * right_drive_motor.MAX_ANGULAR_VELOCITY, dt);
-  back_drive_motor.set_drive_speed(motor_speeds[2] * back_drive_motor.MAX_ANGULAR_VELOCITY, dt);
+  // right_drive_motor.set_drive_speed(motor_speeds[1] * right_drive_motor.MAX_ANGULAR_VELOCITY, dt);
+  // back_drive_motor.set_drive_speed(motor_speeds[2] * back_drive_motor.MAX_ANGULAR_VELOCITY, dt);
   
   if (DEBUG) {
     Serial.print(" hi:");
@@ -68,6 +74,9 @@ void read_drive_motor_encoder() {
   } else {
     drive_motors[j]->enc_posi++;
   }
+  Serial.print(j);
+  Serial.print(" EI:");
+  Serial.print(drive_motors[j]->enc_posi);
 
   // calculate the velocity of the wheel by dividing one update by the time it takes in seconds
   long curr_enc_time_micros = micros();

@@ -248,6 +248,11 @@ class DriveMotor {
       ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
         this->enc_pos = this->enc_posi;
         this->enc_velocity = this->enc_velocityi;
+
+        Serial.print(" e:");
+        Serial.print(this->enc_pos);
+        Serial.print(" ei:");
+        Serial.print(this->enc_posi);
       }
 
       // calculate measured wheel velocities in rad/s
@@ -256,6 +261,12 @@ class DriveMotor {
       float v1 = (this->enc_pos - this->prev_enc_pos)/(dt * this->pulses_per_rotation) * 2 * M_PI;
       float v2 = this->enc_velocity/this->pulses_per_rotation * 2 * M_PI;
       this->prev_enc_pos = this->enc_pos;
+
+      Serial.print(" v1:");
+      Serial.print(v1);
+      Serial.print(" v2:");
+      Serial.print(v2);
+      Serial.println();
       
       // run a low pass filter on both v1 and v2 values to smooth out signal
       this->v1f = this->af * this->v1f + this->bf * v1 + this->bf * this->prev_v1;
@@ -320,7 +331,7 @@ PIDController right_drive_motor_pid_controller = PIDController(100.0, 15.0, 5.0)
 PIDController back_drive_motor_pid_controller = PIDController(100.0, 15.0, 5.0);
 
 // initialize drive motors
-DriveMotor left_drive_motor = DriveMotor(LEFT_DRIVE_MOTOR, 10, 31, 30, 18, 19, 1.0, &left_drive_motor_pid_controller);
-DriveMotor right_drive_motor = DriveMotor(RIGHT_DRIVE_MOTOR, 11, 33, 32, 20, 21, 1.0, &right_drive_motor_pid_controller);
-DriveMotor back_drive_motor = DriveMotor(BACK_DRIVE_MOTOR, 5, 23, 22, 2, 3, 1.0, &back_drive_motor_pid_controller);
+DriveMotor left_drive_motor = DriveMotor(LEFT_DRIVE_MOTOR, 5, 30, 31, 18, 19, 1.0, &left_drive_motor_pid_controller);
+DriveMotor right_drive_motor = DriveMotor(RIGHT_DRIVE_MOTOR, 6, 26, 27, 20, 21, 1.0, &right_drive_motor_pid_controller);
+DriveMotor back_drive_motor = DriveMotor(BACK_DRIVE_MOTOR, 9, 22, 23, 2, 3, 1.0, &back_drive_motor_pid_controller);
 DriveMotor* drive_motors[NUM_DRIVE_MOTORS] = { &left_drive_motor, &right_drive_motor, &back_drive_motor };

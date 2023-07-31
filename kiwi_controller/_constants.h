@@ -47,7 +47,7 @@ long prev_time_micros = 0;
   Each motor has a positive angular velocity m1, m2, m3 defined as counterclockwise rotation when looking
   at the motor, the shaft extending towards you.
 
-  Let fk_drive_matrix be the matrix where [vx, vy, ωz]^ = fk_drive_matrix [m1, m2, m3]^T
+  Let fk_drive_matrix be the matrix where [vx, vy, ωz]^T = fk_drive_matrix * [m1, m2, m3]^T
   that is, the forward kinematics matrix multiplied by the vector of 3 motor speeds m1, m2, m3 
   to yield the vector containing the translational and angular velocities of the robot vx, vy, ωz
 
